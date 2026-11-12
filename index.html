@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AquaCircuit 3D - 水流と落差で学ぶ電気回路シミュレーター</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js r128 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Noto Sans JP', 'Inter', sans-serif;
+            background-color: #070b19;
+            color: #f8fafc;
+        }
+        /* Glassmorphism panels */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.78);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        }
+        .glass-pill {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+        }
+        /* Custom Range Slider for iPad Touch */
+        input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 10px;
+            border-radius: 999px;
+            background: rgba(51, 65, 85, 0.9);
+            outline: none;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 3px solid #ffffff;
+            box-shadow: 0 0 12px rgba(0, 0, 0, 0.6);
+            transition: transform 0.12s ease;
+        }
+        input[type=range]::-webkit-slider-thumb:active {
+            transform: scale(1.2);
+        }
+        .slider-v::-webkit-slider-thumb { background: #f43f5e; box-shadow: 0 0 14px #f43f5e; }
+        .slider-r1::-webkit-slider-thumb { background: #f59e0b; box-shadow: 0 0 14px #f59e0b; }
+        .slider-r2::-webkit-slider-thumb { background: #10b981; box-shadow: 0 0 14px #10b981; }
+
+        /* 3D Floating Labels */
+        .label-3d {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            pointer-events: auto;
+            cursor: pointer;
+            transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+            z-index: 15;
+        }
+        .label-3d:hover, .label-3d.active-node {
+            transform: translate(-50%, -50%) scale(1.08);
+            border-color: #38bdf8;
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.6);
+        }
+        /* Scrollbar styling for right panel on smaller screens */
+        .custom-scroll::-webkit-scrollbar {
+            width: 5px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.3);
+            border-radius: 999px;
+        }
+        @keyframes pulseGlow {
+            0%, 100% { filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.6)); }
+            50% { filter: drop-shadow(0 0 12px rgba(56, 189, 248, 1)); }
+        }
+        .circuit-highlight {
+            animation: pulseGlow 1.6s infinite;
+        }
+    </style>
+</head>
+<body class="flex flex-col md:flex-row w-screen h-screen overflow-hidden select-none">
+
+    <!-- ================= LEFT AREA: 3D WATER CIRCUIT VIEWPORT (72% width on landscape iPad) ================= -->
+    <div id="viewport-container" class="relative w-full md:w-[70%] lg:w-[73%] h-[58%] md:h-full overflow-hidden bg-gradient-to-b from-[#070b19] via-[#0c162d] to-[#081021]">
+        
+        <!-- 3D WebGL Canvas -->
+        <canvas id="three-canvas" class="w-full h-full block touch-none"></canvas>
+
+        <!-- Top Navigation Bar: Circuit Mode Toggle & Camera Angles -->
+        <div class="absolute top-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2 z-20 pointer-events-none">
+            
+            <!-- App Brand + Mode Switcher -->
+            <div class="flex items-center gap-2 pointer-events-auto glass-panel px-3 py-2 rounded-2xl">
+                <div class="flex items-center gap-2 pr-2 border-r border-slate-700/80">
+                    <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center shadow-lg shadow-sky-500/30">
+                        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                    </div>
+                    <div class="hidden sm:block">
+                        <div class="text-xs font-bold tracking-wider text-sky-400 leading-none">中2理科・電気</div>
+                        <div class="text-sm font-black text-white tracking-tight">水流×高低差 3D回路</div>
+                    </div>
+                </div>
+
+                <!-- Series / Parallel Switch Buttons -->
+                <div class="flex bg-slate-900/90 p-1 rounded-xl border border-slate-700/70">
+                    <button id="btn-series" onclick="setCircuitMode('series')" class="px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md shadow-sky-500/30">
+                        直列回路（1本道）
+                    </button>
+                    <button id="btn-parallel" onclick="setCircuitMode('parallel')" class="px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 text-slate-300 hover:text-white">
+                        並列回路（枝分かれ）
+                    </button>
+                </div>
+            </div>
+
+            <!-- Camera View Presets (for intuitive learning) -->
+            <div class="flex items-center gap-1.5 pointer-events-auto glass-panel p-1.5 rounded-2xl">
+                <span class="text-[11px] font-bold text-slate-400 px-2 hidden xl:inline">視点切替:</span>
+                <button onclick="setCameraPreset('iso')" id="cam-iso" class="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-400/40 hover:bg-sky-500/30 transition">
+                    立体斜め (全体)
+                </button>
+                <button onclick="setCameraPreset('side')" id="cam-side" class="px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-300 border border-transparent hover:bg-slate-800 transition flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-rose-400"></span>真横 (落差＝電圧)
+                </button>
+                <button onclick="setCameraPreset('top')" id="cam-top" class="px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-300 border border-transparent hover:bg-slate-800 transition flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-cyan-400"></span>真上 (水量＝電流)
+                </button>
+                <div class="h-4 w-[1px] bg-slate-700 mx-0.5"></div>
+                <button onclick="zoomCamera(0.82)" title="拡大" class="w-8 h-8 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 font-bold flex items-center justify-center text-base active:scale-95 transition">＋</button>
+                <button onclick="zoomCamera(1.22)" title="縮小" class="w-8 h-8 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 font-bold flex items-center justify-center text-base active:scale-95 transition">－</button>
+            </div>
+        </div>
+
+        <!-- 3D Floating HTML Badges Container -->
+        <div id="labels-container" class="absolute inset-0 pointer-events-none overflow-hidden">
+            <!-- Pump Badge -->
+            <div id="badge-pump" onclick="selectNode('pump')" class="label-3d glass-pill px-2.5 py-1.5 rounded-xl border-rose-400/50">
+                <div class="flex items-center gap-1.5">
+                    <span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span>
+                    <span class="text-[11px] font-extrabold text-rose-300">電源ポンプ</span>
+                </div>
+                <div class="text-xs font-black text-white mt-0.5">
+                    汲み上げ: <span id="lbl-pump-v" class="text-rose-400">6.0V</span> / <span id="lbl-pump-i" class="text-cyan-300">0.20A</span>
+                </div>
+            </div>
+
+            <!-- Resistor 1 Badge -->
+            <div id="badge-r1" onclick="selectNode('r1')" class="label-3d glass-pill px-2.5 py-1.5 rounded-xl border-amber-400/50">
+                <div class="flex items-center gap-1.5">
+                    <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+                    <span class="text-[11px] font-extrabold text-amber-300">抵抗A (<span id="lbl-r1-ohm">10</span>Ω)</span>
+                </div>
+                <div class="text-xs font-black text-white mt-0.5">
+                    落差 <span id="lbl-r1-v" class="text-rose-400">2.0V</span> / 水量 <span id="lbl-r1-i" class="text-cyan-300">0.20A</span>
+                </div>
+            </div>
+
+            <!-- Resistor 2 Badge -->
+            <div id="badge-r2" onclick="selectNode('r2')" class="label-3d glass-pill px-2.5 py-1.5 rounded-xl border-emerald-400/50">
+                <div class="flex items-center gap-1.5">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+                    <span class="text-[11px] font-extrabold text-emerald-300">抵抗B (<span id="lbl-r2-ohm">20</span>Ω)</span>
+                </div>
+                <div class="text-xs font-black text-white mt-0.5">
+                    落差 <span id="lbl-r2-v" class="text-rose-400">4.0V</span> / 水量 <span id="lbl-r2-i" class="text-cyan-300">0.20A</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom-Left: Interactive 2D Circuit Diagram Overlay (Synced with 3D) -->
+        <div class="absolute bottom-3 left-3 z-20 glass-panel rounded-2xl p-2.5 w-60 sm:w-68 pointer-events-auto">
+            <div class="flex items-center justify-between mb-1">
+                <span class="text-[11px] font-bold text-sky-300 flex items-center gap-1">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                    連動 2D回路図 (タップで測定)
+                </span>
+                <span id="schematic-mode-tag" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">直列</span>
+            </div>
+            <!-- SVG 2D Circuit Schematic -->
+            <svg id="circuit-svg" viewBox="0 0 240 125" class="w-full h-28 bg-slate-950/70 rounded-xl border border-slate-800">
+                <!-- Dynamic content injected by JS -->
+            </svg>
+        </div>
+
+        <!-- Bottom-Right inside Viewport: Inspector / Key Lesson Banner -->
+        <div class="absolute bottom-3 right-3 left-64 sm:left-72 z-20 hidden sm:flex items-center justify-between glass-panel rounded-2xl px-4 py-2.5 pointer-events-auto">
+            <div class="flex items-start gap-3">
+                <div id="inspector-badge" class="mt-0.5 px-2.5 py-1 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-xs font-extrabold whitespace-nowrap">
+                    直列のポイント
+                </div>
+                <div>
+                    <div id="inspector-title" class="text-xs sm:text-sm font-bold text-white">
+                        1本道だから「流れる水の量（電流）」はどこも全く同じ！
+                    </div>
+                    <div id="inspector-desc" class="text-[11px] sm:text-xs text-slate-300 mt-0.5 leading-relaxed">
+                        ポンプで持ち上げた高さ（電源電圧）を、2段の滝（抵抗A・B）で分け合って下りきります（<span class="text-rose-300 font-bold">V = V₁ + V₂</span>）。
+                    </div>
+                </div>
+            </div>
+            <div class="text-[10px] text-slate-400 whitespace-nowrap ml-2 hidden xl:block">
+                1本指：回転 / 2本指：拡大縮小
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= RIGHT AREA: SLIDERS & REAL-TIME GRAPHS PANEL (30% width on landscape iPad) ================= -->
+    <div class="w-full md:w-[30%] lg:w-[27%] h-[42%] md:h-full glass-panel border-l border-slate-800/90 flex flex-col justify-between p-3.5 sm:p-4 overflow-y-auto custom-scroll z-30">
+        
+        <!-- Top Section: Sliders for V, R1, R2 -->
+        <div class="space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                <h2 class="text-sm font-black tracking-wide text-white flex items-center gap-1.5">
+                    <span class="w-2 h-4 rounded-full bg-sky-400 inline-block"></span>
+                    実験コントローラー
+                </h2>
+                <button onclick="resetValues()" class="text-[11px] font-bold text-slate-400 hover:text-white bg-slate-800/90 px-2.5 py-1 rounded-lg border border-slate-700 transition">
+                    初期値に戻す
+                </button>
+            </div>
+
+            <!-- Power Supply Voltage Slider -->
+            <div class="bg-slate-900/75 p-2.5 rounded-xl border border-rose-500/25">
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-bold text-rose-300 flex items-center gap-1.5">
+                        <span class="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[10px]">電池(ポンプ)</span>
+                        電源の電圧 (水を持ち上げる高さ)
+                    </label>
+                    <span class="text-sm font-black text-rose-400"><span id="val-v">6.0</span> V</span>
+                </div>
+                <input id="slider-v" type="range" min="2" max="12" step="0.5" value="6" class="slider-v" oninput="updateSimulation()">
+                <div class="flex justify-between text-[10px] text-slate-400 mt-1">
+                    <span>低い (2V)</span>
+                    <span>中 (6V)</span>
+                    <span>高い (12V)</span>
+                </div>
+            </div>
+
+            <!-- Resistor A Slider -->
+            <div class="bg-slate-900/75 p-2.5 rounded-xl border border-amber-500/25">
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                        <span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px]">水車A</span>
+                        抵抗A の大きさ (流れにくさ)
+                    </label>
+                    <span class="text-sm font-black text-amber-400"><span id="val-r1">10</span> Ω</span>
+                </div>
+                <input id="slider-r1" type="range" min="5" max="30" step="1" value="10" class="slider-r1" oninput="updateSimulation()">
+                <div class="flex justify-between text-[10px] text-slate-400 mt-1">
+                    <span>流れやすい (5Ω)</span>
+                    <span>流れにくい (30Ω)</span>
+                </div>
+            </div>
+
+            <!-- Resistor B Slider -->
+            <div class="bg-slate-900/75 p-2.5 rounded-xl border border-emerald-500/25">
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                        <span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px]">水車B</span>
+                        抵抗B の大きさ (流れにくさ)
+                    </label>
+                    <span class="text-sm font-black text-emerald-400"><span id="val-r2">20</span> Ω</span>
+                </div>
+                <input id="slider-r2" type="range" min="5" max="30" step="1" value="20" class="slider-r2" oninput="updateSimulation()">
+                <div class="flex justify-between text-[10px] text-slate-400 mt-1">
+                    <span>流れやすい (5Ω)</span>
+                    <span>流れにくい (30Ω)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Middle Section: Live Bar Graphs for Voltage (Drop) & Current (Flow) -->
+        <div class="my-3 space-y-3 bg-slate-900/80 p-3 rounded-2xl border border-slate-800">
+            <div class="flex items-center justify-between">
+                <span class="text-xs font-extrabold text-white">リアルタイム比較グラフ</span>
+                <span id="total-r-badge" class="text-[11px] font-bold text-sky-300 bg-sky-500/15 px-2 py-0.5 rounded-md border border-sky-500/30">
+                    全体の抵抗: 30.0 Ω
+                </span>
+            </div>
+
+            <!-- Voltage Comparison Bars (Height/Drop) -->
+            <div class="space-y-1.5">
+                <div class="flex justify-between items-center text-[11px]">
+                    <span class="font-bold text-rose-300 flex items-center gap-1">
+                        <span>▼ 電圧＝水の落差 (V)</span>
+                    </span>
+                    <span id="formula-v" class="font-mono font-bold text-rose-200 bg-rose-500/20 px-1.5 py-0.5 rounded text-[10px]">
+                        V = V₁ + V₂ (6.0 = 2.0 + 4.0)
+                    </span>
+                </div>
+                <!-- Bars -->
+                <div class="space-y-1 text-[11px]">
+                    <div class="flex items-center gap-2">
+                        <span class="w-12 text-slate-300 font-semibold">電源</span>
+                        <div class="flex-1 h-4 bg-slate-800 rounded-full overflow-hidden p-0.5">
+                            <div id="bar-v-total" class="h-full bg-gradient-to-r from-rose-500 to-pink-400 rounded-full transition-all duration-200" style="width: 50%"></div>
+                        </div>
+                        <span id="txt-v-total" class="w-11 text-right font-mono font-bold text-rose-300">6.0V</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="w-12 text-amber-300 font-semibold">抵抗A</span>
+                        <div class="flex-1 h-4 bg-slate-800 rounded-full overflow-hidden p-0.5">
+                            <div id="bar-v-r1" class="h-full bg-gradient-to-r from-amber-500 to-yellow-400 rounded-full transition-all duration-200" style="width: 17%"></div>
+                        </div>
+                        <span id="txt-v-r1" class="w-11 text-right font-mono font-bold text-amber-300">2.0V</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="w-12 text-emerald-300 font-semibold">抵抗B</span>
+                        <div class="flex-1 h-4 bg-slate-800 rounded-full overflow-hidden p-0.5">
+                            <div id="bar-v-r2" class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-200" style="width: 33%"></div>
+                        </div>
+                        <span id="txt-v-r2" class="w-11 text-right font-mono font-bold text-emerald-300">4.0V</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="border-t border-slate-800/90 my-1"></div>
+
+            <!-- Current Comparison Bars (Water Flow Amount) -->
+            <div class="space-y-1.5">
+                <div class="flex justify-between items-center text-[11px]">
+                    <span class="font-bold text-cyan-300 flex items-center gap-1">
+                        <span>≈ 電流＝流れる水量 (A)</span>
+                    </span>
+                    <span id="formula-i" class="font-mono font-bold text-cyan-200 bg-cyan-500/20 px-1.5 py-0.5 rounded text-[10px]">
+                        I = I₁ = I₂ (どこも 0.20A)
+                    </span>
+                </div>
+                <!-- Bars -->
+                <div class="space-y-1 text-[11px]">
+                    <div class="flex items-center gap-2">
+                        <span class="w-12 text-slate-300 font-semibold">全体</span>
+                        <div class="flex-1 h-4 bg-slate-800 rounded-full overflow-hidden p-0.5">
+                            <div id="bar-i-total" class="h-full bg-gradient-to-r from-sky-500 to-cyan-300 rounded-full transition-all duration-200" style="width: 20%"></div>
+                        </div>
+                        <span id="txt-i-total" class="w-14 text-right font-mono font-bold text-cyan-300">0.20A</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="w-12 text-amber-300 font-semibold">抵抗A</span>
+                        <div class="flex-1 h-4 bg-slate-800 rounded-full overflow-hidden p-0.5">
+                            <div id="bar-i-r1" class="h-full bg-gradient-to-r from-amber-500 to-cyan-300 rounded-full transition-all duration-200" style="width: 20%"></div>
+                        </div>
+                        <span id="txt-i-r1" class="w-14 text-right font-mono font-bold text-amber-300">0.20A</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="w-12 text-emerald-300 font-semibold">抵抗B</span>
+                        <div class="flex-1 h-4 bg-slate-800 rounded-full overflow-hidden p-0.5">
+                            <div id="bar-i-r2" class="h-full bg-gradient-to-r from-emerald-500 to-cyan-300 rounded-full transition-all duration-200" style="width: 20%"></div>
+                        </div>
+                        <span id="txt-i-r2" class="w-14 text-right font-mono font-bold text-emerald-300">0.20A</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Section: Ohm's Law V-I Characteristic Line Graph -->
+        <div class="bg-slate-900/80 p-2.5 rounded-2xl border border-slate-800">
+            <div class="flex items-center justify-between mb-1">
+                <span class="text-[11px] font-bold text-slate-200">オームの法則 グラフ (I = V ÷ R)</span>
+                <span class="text-[10px] text-slate-400">傾き＝流れやすさ</span>
+            </div>
+            <svg id="vi-graph-svg" viewBox="0 0 260 110" class="w-full h-24 bg-slate-950/80 rounded-xl border border-slate-800/80">
+                <!-- Dynamic V-I chart rendered by JS -->
+            </svg>
+        </div>
+    </div>
+
+    <!-- ================= MAIN APPLICATION & 3D ENGINE SCRIPT ================= -->
+    <script>
+        // --- 1. Application State ---
+        const state = {
+            mode: 'series',      // 'series' | 'parallel'
+            V: 6.0,              // Power Supply Voltage (2V to 12V)
+            R1: 10,              // Resistor A (5Ω to 30Ω)
+            R2: 20,              // Resistor B (5Ω to 30Ω)
+            // Calculated physical values
+            R_total: 30,
+            I_total: 0.2,
+            I1: 0.2,
+            I2: 0.2,
+            V1: 2.0,
+            V2: 4.0,
+            selectedNode: 'all'  // 'all' | 'pump' | 'r1' | 'r2'
+        };
+
+        // --- 2. Three.js Scene Globals ---
+        let scene, camera, renderer;
+        let circuitGroup;
+        let wheel1Mesh, wheel2Mesh, pumpScrewMesh;
+        let particles = [];
+        const PARTICLE_COUNT = 240;
+
+        // 3D anchor positions for floating HTML badges
+        const badgeAnchors = {
+            pump: new THREE.Vector3(-6.2, 3.5, 0),
+            r1: new THREE.Vector3(-1.5, 3.5, 1.2),
+            r2: new THREE.Vector3(2.5, 2.5, 1.2)
+        };
+
+        // Custom Camera Orbit / Zoom State (Smooth Damping for iPad & Mouse)
+        const camControl = {
+            theta: 0.22,          // Horizontal angle (radians)
+            phi: 1.02,            // Vertical angle from top (radians)
+            radius: 17.5,         // Distance from target
+            targetTheta: 0.22,
+            targetPhi: 1.02,
+            targetRadius: 17.5,
+            lookAt: new THREE.Vector3(0, 1.8, 0),
+            targetLookAt: new THREE.Vector3(0, 1.8, 0),
+            isDragging: false,
+            prevX: 0,
+            prevY: 0,
+            pinchDist: 0
+        };
+
+        // Height Scale: 1 Volt = 0.45 3D units
+        const V_SCALE = 0.45;
+
+        // --- 3. Initialize Three.js Scene ---
+        function initThree() {
+            const container = document.getElementById('viewport-container');
+            const canvas = document.getElementById('three-canvas');
+
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x070b19, 0.018);
+
+            camera = new THREE.PerspectiveCamera(42, container.clientWidth / container.clientHeight, 0.1, 150);
+
+            renderer = new THREE.WebGLRenderer({
+                canvas: canvas,
+                antialias: true,
+                alpha: true
+            });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xdbeafe, 0.75);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.95);
+            dirLight.position.set(12, 24, 16);
+            scene.add(dirLight);
+
+            const pointLight1 = new THREE.PointLight(0x38bdf8, 0.9, 30);
+            pointLight1.position.set(0, 6, 2);
+            scene.add(pointLight1);
+
+            // Base Reference Floor Grid (0V Ground Level)
+            const gridHelper = new THREE.GridHelper(24, 24, 0x1e3a8a, 0x0f172a);
+            gridHelper.position.y = -0.05;
+            scene.add(gridHelper);
+
+            // Ground Base Plate (0V Sea Level)
+            const baseGeo = new THREE.BoxGeometry(17.5, 0.16, 10.5);
+            const baseMat = new THREE.MeshPhongMaterial({
+                color: 0x091326,
+                transparent: true,
+                opacity: 0.85,
+                shininess: 60
+            });
+            const basePlate = new THREE.Mesh(baseGeo, baseMat);
+            basePlate.position.set(0, -0.14, 0);
+            scene.add(basePlate);
+
+            // Elevation Ruler Posts (Back-left corner near pump to visualize Voltage Height)
+            createHeightRuler();
+
+            // Group holding dynamic water channels, waterfalls, wheels, and particles
+            circuitGroup = new THREE.Group();
+            scene.add(circuitGroup);
+
+            // Setup Mouse & iPad Touch Controls
+            setupInputControls(canvas);
+
+            // Handle Responsive Resize
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // Create 3D Voltage Elevation Ruler next to the Pump
+        function createHeightRuler() {
+            const rulerGroup = new THREE.Group();
+            rulerGroup.position.set(-7.5, 0, -1.5);
+
+            // Vertical pole
+            const poleGeo = new THREE.CylinderGeometry(0.05, 0.05, 12 * V_SCALE + 0.5, 12);
+            const poleMat = new THREE.MeshBasicMaterial({ color: 0xf43f5e, transparent: true, opacity: 0.6 });
+            const pole = new THREE.Mesh(poleGeo, poleMat);
+            pole.position.y = (12 * V_SCALE) / 2;
+            rulerGroup.add(pole);
+
+            // Tick rings every 2V
+            for (let v = 0; v <= 12; v += 2) {
+                const tickGeo = new THREE.BoxGeometry(0.45, 0.04, 0.04);
+                const tickMat = new THREE.MeshBasicMaterial({
+                    color: v === 0 ? 0x38bdf8 : 0xf43f5e
+                });
+                const tick = new THREE.Mesh(tickGeo, tickMat);
+                tick.position.set(0.2, v * V_SCALE, 0);
+                rulerGroup.add(tick);
+            }
+            scene.add(rulerGroup);
+        }
+
+        // --- 4. Physics Calculation & Scene Reconstruction ---
+        function updateSimulation() {
+            // Read slider values
+            state.V = parseFloat(document.getElementById('slider-v').value);
+            state.R1 = parseFloat(document.getElementById('slider-r1').value);
+            state.R2 = parseFloat(document.getElementById('slider-r2').value);
+
+            // Update slider labels
+            document.getElementById('val-v').textContent = state.V.toFixed(1);
+            document.getElementById('val-r1').textContent = state.R1.toFixed(0);
+            document.getElementById('val-r2').textContent = state.R2.toFixed(0);
+
+            if (state.mode === 'series') {
+                state.R_total = state.R1 + state.R2;
+                state.I_total = state.V / state.R_total;
+                state.I1 = state.I_total;
+                state.I2 = state.I_total;
+                state.V1 = state.I1 * state.R1;
+                state.V2 = state.I2 * state.R2;
+            } else {
+                // Parallel
+                state.V1 = state.V;
+                state.V2 = state.V;
+                state.I1 = state.V / state.R1;
+                state.I2 = state.V / state.R2;
+                state.I_total = state.I1 + state.I2;
+                state.R_total = (state.R1 * state.R2) / (state.R1 + state.R2);
+            }
+
+            // Update UI Badges, Bar Graphs, V-I Graph, 2D Schematic, and 3D Geometry
+            updateUIPanels();
+            rebuild3DCircuit();
+            render2DSchematic();
+            renderVIGraph();
+        }
+
+        // --- 5. Build 3D Water Circuit Geometry ---
+        function rebuild3DCircuit() {
+            // Clear existing meshes inside circuitGroup
+            while (circuitGroup.children.length > 0) {
+                const child = circuitGroup.children[0];
+                circuitGroup.remove(child);
+            }
+            particles = [];
+
+            const H_total = state.V * V_SCALE;
+
+            // Helper to map current (A) to visual stream width (0.28 to 1.35 units)
+            const currentToWidth = (amp) => Math.max(0.26, Math.min(1.35, 0.22 + amp * 0.58));
+
+            // 1. Create Pump (Battery) at X = -6, Z = 0
+            createPump3D(-6, 0, H_total, currentToWidth(state.I_total));
+
+            if (state.mode === 'series') {
+                // === SERIES CIRCUIT 3D BUILD ===
+                const H_mid = state.V2 * V_SCALE; // Height between R1 and R2
+                const w = currentToWidth(state.I_total);
+
+                // Path segments:
+                // Back return channel (Y = 0): from X = +6 to X = -6 at Z = -2.8
+                createChannelSegment(new THREE.Vector3(6, 0, 1.5), new THREE.Vector3(6, 0, -2.8), w, 0x0284c7);
+                createChannelSegment(new THREE.Vector3(6, 0, -2.8), new THREE.Vector3(-6, 0, -2.8), w, 0x0284c7);
+                createChannelSegment(new THREE.Vector3(-6, 0, -2.8), new THREE.Vector3(-6, 0, 1.5), w, 0x0284c7);
+
+                // High voltage plateau (Y = H_total): from Pump (-6, 1.5) to R1 start (-2.8, 1.5)
+                createChannelSegment(new THREE.Vector3(-6, H_total, 1.5), new THREE.Vector3(-2.8, H_total, 1.5), w, 0xf43f5e);
+                createSupportPillar(-4.4, H_total, 1.5);
+
+                // Waterfall 1 (Resistor A): X = -2.8 to -0.6 at Z = 1.5, drops from H_total to H_mid
+                createWaterfallSegment(
+                    new THREE.Vector3(-2.8, H_total, 1.5),
+                    new THREE.Vector3(-0.6, H_mid, 1.5),
+                    w, 0xf59e0b, 1, state.R1
+                );
+
+                // Middle voltage plateau (Y = H_mid): X = -0.6 to +1.4 at Z = 1.5
+                createChannelSegment(new THREE.Vector3(-0.6, H_mid, 1.5), new THREE.Vector3(1.4, H_mid, 1.5), w, 0xa855f7);
+                createSupportPillar(0.4, H_mid, 1.5);
+
+                // Waterfall 2 (Resistor B): X = +1.4 to +3.6 at Z = 1.5, drops from H_mid to 0
+                createWaterfallSegment(
+                    new THREE.Vector3(1.4, H_mid, 1.5),
+                    new THREE.Vector3(3.6, 0, 1.5),
+                    w, 0x10b981, 2, state.R2
+                );
+
+                // Low voltage channel after R2 (Y = 0): X = +3.6 to +6.0 at Z = 1.5
+                createChannelSegment(new THREE.Vector3(3.6, 0, 1.5), new THREE.Vector3(6.0, 0, 1.5), w, 0x0284c7);
+
+                // Update 3D Badge Anchors for Series
+                badgeAnchors.pump.set(-6.0, H_total + 1.1, 1.5);
+                badgeAnchors.r1.set(-1.7, (H_total + H_mid) / 2 + 1.25, 1.5);
+                badgeAnchors.r2.set(2.5, H_mid / 2 + 1.25, 1.5);
+
+                // Generate Flowing Water Particles along the single Series Loop
+                const seriesWaypoints = [
+                    new THREE.Vector3(-6, 0, 1.5),
+                    new THREE.Vector3(-6, H_total, 1.5),
+                    new THREE.Vector3(-2.8, H_total, 1.5),
+                    new THREE.Vector3(-0.6, H_mid, 1.5),
+                    new THREE.Vector3(1.4, H_mid, 1.5),
+                    new THREE.Vector3(3.6, 0, 1.5),
+                    new THREE.Vector3(6, 0, 1.5),
+                    new THREE.Vector3(6, 0, -2.8),
+                    new THREE.Vector3(-6, 0, -2.8),
+                    new THREE.Vector3(-6, 0, 1.5)
+                ];
+                spawnParticlesForPath(seriesWaypoints, PARTICLE_COUNT, w, state.I_total);
+
+            } else {
+                // === PARALLEL CIRCUIT 3D BUILD ===
+                const wTotal = currentToWidth(state.I_total);
+                const w1 = currentToWidth(state.I1);
+                const w2 = currentToWidth(state.I2);
+
+                // Main high-level trunk from Pump (-6, H_total, 0) to Split Junction (-3.2, H_total, 0)
+                createChannelSegment(new THREE.Vector3(-6, H_total, 0), new THREE.Vector3(-3.2, H_total, 0), wTotal, 0xf43f5e);
+                createSupportPillar(-4.5, H_total, 0);
+
+                // Split Junction (-3.2, H_total, 0) to Branch A (Z = +2.4) and Branch B (Z = -1.6)
+                createChannelSegment(new THREE.Vector3(-3.2, H_total, 0), new THREE.Vector3(-3.2, H_total, 2.4), w1, 0xf43f5e);
+                createChannelSegment(new THREE.Vector3(-3.2, H_total, 0), new THREE.Vector3(-3.2, H_total, -1.6), w2, 0xf43f5e);
+
+                // --- Branch A (Front, Z = +2.4): Resistor A drops full H_total -> 0 ---
+                createChannelSegment(new THREE.Vector3(-3.2, H_total, 2.4), new THREE.Vector3(-1.4, H_total, 2.4), w1, 0xf43f5e);
+                createSupportPillar(-2.3, H_total, 2.4);
+                createWaterfallSegment(
+                    new THREE.Vector3(-1.4, H_total, 2.4),
+                    new THREE.Vector3(1.4, 0, 2.4),
+                    w1, 0xf59e0b, 1, state.R1
+                );
+                createChannelSegment(new THREE.Vector3(1.4, 0, 2.4), new THREE.Vector3(3.5, 0, 2.4), w1, 0x0284c7);
+                createChannelSegment(new THREE.Vector3(3.5, 0, 2.4), new THREE.Vector3(3.5, 0, 0), w1, 0x0284c7);
+
+                // --- Branch B (Inner, Z = -1.6): Resistor B drops full H_total -> 0 ---
+                createChannelSegment(new THREE.Vector3(-3.2, H_total, -1.6), new THREE.Vector3(-1.4, H_total, -1.6), w2, 0xf43f5e);
+                createSupportPillar(-2.3, H_total, -1.6);
+                createWaterfallSegment(
+                    new THREE.Vector3(-1.4, H_total, -1.6),
+                    new THREE.Vector3(1.4, 0, -1.6),
+                    w2, 0x10b981, 2, state.R2
+                );
+                createChannelSegment(new THREE.Vector3(1.4, 0, -1.6), new THREE.Vector3(3.5, 0, -1.6), w2, 0x0284c7);
+                createChannelSegment(new THREE.Vector3(3.5, 0, -1.6), new THREE.Vector3(3.5, 0, 0), w2, 0x0284c7);
+
+                // Merged Return Trunk (Y = 0): from Merge Junction (3.5, 0, 0) -> (6, 0, 0) -> Back loop (Z = -3.8) -> Pump (-6, 0, 0)
+                createChannelSegment(new THREE.Vector3(3.5, 0, 0), new THREE.Vector3(6, 0, 0), wTotal, 0x0284c7);
+                createChannelSegment(new THREE.Vector3(6, 0, 0), new THREE.Vector3(6, 0, -3.8), wTotal, 0x0284c7);
+                createChannelSegment(new THREE.Vector3(6, 0, -3.8), new THREE.Vector3(-6, 0, -3.8), wTotal, 0x0284c7);
+                createChannelSegment(new THREE.Vector3(-6, 0, -3.8), new THREE.Vector3(-6, 0, 0), wTotal, 0x0284c7);
+
+                // Update 3D Badge Anchors for Parallel
+                badgeAnchors.pump.set(-6.0, H_total + 1.1, 0);
+                badgeAnchors.r1.set(0.0, H_total / 2 + 1.2, 2.4);
+                badgeAnchors.r2.set(0.0, H_total / 2 + 1.2, -1.6);
+
+                // Spawn Particles proportional to Branch Currents
+                const ratio1 = state.I1 / state.I_total;
+                const count1 = Math.max(30, Math.round(PARTICLE_COUNT * ratio1));
+                const count2 = Math.max(30, PARTICLE_COUNT - count1);
+
+                const branch1Waypoints = [
+                    new THREE.Vector3(-6, 0, 0),
+                    new THREE.Vector3(-6, H_total, 0),
+                    new THREE.Vector3(-3.2, H_total, 0),
+                    new THREE.Vector3(-3.2, H_total, 2.4),
+                    new THREE.Vector3(-1.4, H_total, 2.4),
+                    new THREE.Vector3(1.4, 0, 2.4),
+                    new THREE.Vector3(3.5, 0, 2.4),
+                    new THREE.Vector3(3.5, 0, 0),
+                    new THREE.Vector3(6, 0, 0),
+                    new THREE.Vector3(6, 0, -3.8),
+                    new THREE.Vector3(-6, 0, -3.8),
+                    new THREE.Vector3(-6, 0, 0)
+                ];
+
+                const branch2Waypoints = [
+                    new THREE.Vector3(-6, 0, 0),
+                    new THREE.Vector3(-6, H_total, 0),
+                    new THREE.Vector3(-3.2, H_total, 0),
+                    new THREE.Vector3(-3.2, H_total, -1.6),
+                    new THREE.Vector3(-1.4, H_total, -1.6),
+                    new THREE.Vector3(1.4, 0, -1.6),
+                    new THREE.Vector3(3.5, 0, -1.6),
+                    new THREE.Vector3(3.5, 0, 0),
+                    new THREE.Vector3(6, 0, 0),
+                    new THREE.Vector3(6, 0, -3.8),
+                    new THREE.Vector3(-6, 0, -3.8),
+                    new THREE.Vector3(-6, 0, 0)
+                ];
+
+                spawnParticlesForPath(branch1Waypoints, count1, w1, state.I1);
+                spawnParticlesForPath(branch2Waypoints, count2, w2, state.I2);
+            }
+        }
+
+        // Create Pump Cylinder & Animated Lifting Helix
+        function createPump3D(x, z, height, streamWidth) {
+            const pumpGroup = new THREE.Group();
+            pumpGroup.position.set(x, 0, z);
+
+            const cylRadius = Math.max(0.55, streamWidth * 0.65);
+            const safeHeight = Math.max(0.4, height);
+
+            // Outer Glass Cylinder
+            const outerGeo = new THREE.CylinderGeometry(cylRadius, cylRadius, safeHeight, 24);
+            const outerMat = new THREE.MeshPhongMaterial({
+                color: 0xf43f5e,
+                transparent: true,
+                opacity: 0.28,
+                shininess: 100
+            });
+            const outerMesh = new THREE.Mesh(outerGeo, outerMat);
+            outerMesh.position.y = safeHeight / 2;
+            pumpGroup.add(outerMesh);
+
+            // Inner Water Core
+            const innerGeo = new THREE.CylinderGeometry(cylRadius * 0.72, cylRadius * 0.72, safeHeight, 20);
+            const innerMat = new THREE.MeshPhongMaterial({
+                color: 0x38bdf8,
+                emissive: 0x0284c7,
+                emissiveIntensity: 0.35,
+                transparent: true,
+                opacity: 0.75
+            });
+            const innerMesh = new THREE.Mesh(innerGeo, innerMat);
+            innerMesh.position.y = safeHeight / 2;
+            pumpGroup.add(innerMesh);
+
+            // Spinning Impeller Rings inside Pump
+            pumpScrewMesh = new THREE.Group();
+            const ringCount = Math.max(2, Math.floor(safeHeight / 0.6));
+            for (let i = 0; i < ringCount; i++) {
+                const ringGeo = new THREE.TorusGeometry(cylRadius * 0.78, 0.05, 8, 20);
+                const ringMat = new THREE.MeshBasicMaterial({ color: 0xfda4af });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.rotation.x = Math.PI / 2;
+                ring.position.y = (i + 0.5) * (safeHeight / ringCount);
+                pumpScrewMesh.add(ring);
+            }
+            pumpGroup.add(pumpScrewMesh);
+
+            // Base and Cap Rings
+            const capGeo = new THREE.CylinderGeometry(cylRadius * 1.12, cylRadius * 1.12, 0.14, 24);
+            const capMat = new THREE.MeshPhongMaterial({ color: 0xe11d48 });
+            const bottomCap = new THREE.Mesh(capGeo, capMat);
+            const topCap = new THREE.Mesh(capGeo, capMat);
+            topCap.position.y = safeHeight;
+            pumpGroup.add(bottomCap, topCap);
+
+            circuitGroup.add(pumpGroup);
+        }
+
+        // Create Horizontal/Flat Water Channel Segment
+        function createChannelSegment(p1, p2, width, edgeColor) {
+            const dir = new THREE.Vector3().subVectors(p2, p1);
+            const len = dir.length();
+            if (len < 0.01) return;
+
+            const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+            const angleY = Math.atan2(dir.x, dir.z);
+
+            const segGroup = new THREE.Group();
+            segGroup.position.copy(mid);
+            segGroup.rotation.y = angleY;
+
+            // Water Volume
+            const waterHeight = Math.max(0.18, width * 0.32);
+            const waterGeo = new THREE.BoxGeometry(width, waterHeight, len + width * 0.4);
+            const waterMat = new THREE.MeshPhongMaterial({
+                color: 0x0ea5e9,
+                emissive: 0x0369a1,
+                emissiveIntensity: 0.4,
+                transparent: true,
+                opacity: 0.82,
+                shininess: 90
+            });
+            const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+            waterMesh.position.y = waterHeight / 2;
+            segGroup.add(waterMesh);
+
+            // Trough / Flume Side Rails (shows potential level color)
+            const troughGeo = new THREE.BoxGeometry(width + 0.14, 0.08, len + width * 0.4);
+            const troughMat = new THREE.MeshPhongMaterial({
+                color: edgeColor,
+                transparent: true,
+                opacity: 0.55
+            });
+            const troughMesh = new THREE.Mesh(troughGeo, troughMat);
+            troughMesh.position.y = -0.04;
+            segGroup.add(troughMesh);
+
+            circuitGroup.add(segGroup);
+        }
+
+        // Create Sloped Waterfall + Spinning Waterwheel (Resistor)
+        function createWaterfallSegment(p1, p2, width, wheelColor, wheelIndex, resistanceValue) {
+            const dir = new THREE.Vector3().subVectors(p2, p1);
+            const len = dir.length();
+            const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+
+            // Orientation along X-Z and slope pitch
+            const flatDist = Math.hypot(dir.x, dir.z);
+            const pitchAngle = -Math.atan2(dir.y, flatDist); // negative because dropping
+
+            const wfGroup = new THREE.Group();
+            wfGroup.position.copy(mid);
+            wfGroup.rotation.z = pitchAngle;
+
+            // Waterfall Stream
+            const waterHeight = Math.max(0.18, width * 0.32);
+            const wfGeo = new THREE.BoxGeometry(len + 0.15, waterHeight, width);
+            const wfMat = new THREE.MeshPhongMaterial({
+                color: 0x38bdf8,
+                emissive: 0x0284c7,
+                emissiveIntensity: 0.55,
+                transparent: true,
+                opacity: 0.88,
+                shininess: 100
+            });
+            const wfMesh = new THREE.Mesh(wfGeo, wfMat);
+            wfMesh.position.y = waterHeight / 2;
+            wfGroup.add(wfMesh);
+
+            // Slide Chute Underneath
+            const chuteGeo = new THREE.BoxGeometry(len + 0.2, 0.1, width + 0.22);
+            const chuteMat = new THREE.MeshPhongMaterial({
+                color: wheelColor,
+                transparent: true,
+                opacity: 0.75
+            });
+            const chuteMesh = new THREE.Mesh(chuteGeo, chuteMat);
+            chuteMesh.position.y = -0.05;
+            wfGroup.add(chuteMesh);
+
+            circuitGroup.add(wfGroup);
+
+            // Create 3D Paddle Waterwheel at the center of the Waterfall
+            const wheelGroup = new THREE.Group();
+            wheelGroup.position.set(mid.x, mid.y + 0.42, mid.z);
+
+            const wheelRadius = 0.58 + (resistanceValue / 30) * 0.22;
+            const hubGeo = new THREE.CylinderGeometry(0.22, 0.22, width + 0.35, 16);
+            hubGeo.rotateX(Math.PI / 2);
+            const hubMat = new THREE.MeshPhongMaterial({
+                color: wheelColor,
+                emissive: wheelColor,
+                emissiveIntensity: 0.25
+            });
+            const hubMesh = new THREE.Mesh(hubGeo, hubMat);
+            wheelGroup.add(hubMesh);
+
+            // 8 Paddles around the hub
+            const paddleCount = 8;
+            for (let i = 0; i < paddleCount; i++) {
+                const angle = (i / paddleCount) * Math.PI * 2;
+                const paddleGeo = new THREE.BoxGeometry(wheelRadius * 2, 0.09, width + 0.15);
+                const paddleMat = new THREE.MeshPhongMaterial({
+                    color: 0xf8fafc,
+                    transparent: true,
+                    opacity: 0.9
+                });
+                const paddle = new THREE.Mesh(paddleGeo, paddleMat);
+                paddle.rotation.z = angle;
+                wheelGroup.add(paddle);
+            }
+
+            circuitGroup.add(wheelGroup);
+            if (wheelIndex === 1) wheel1Mesh = wheelGroup;
+            if (wheelIndex === 2) wheel2Mesh = wheelGroup;
+        }
+
+        // Translucent Support Pillar under elevated channels
+        function createSupportPillar(x, height, z) {
+            if (height < 0.2) return;
+            const geo = new THREE.CylinderGeometry(0.08, 0.12, height, 10);
+            const mat = new THREE.MeshBasicMaterial({
+                color: 0x334155,
+                transparent: true,
+                opacity: 0.45
+            });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, height / 2, z);
+            circuitGroup.add(mesh);
+        }
+
+        // Spawn Glowing Particles along a closed waypoint loop
+        function spawnParticlesForPath(waypoints, count, streamWidth, branchCurrent) {
+            // Compute cumulative distances along the path
+            const segLengths = [];
+            let totalLen = 0;
+            for (let i = 0; i < waypoints.length - 1; i++) {
+                const d = waypoints[i].distanceTo(waypoints[i + 1]);
+                segLengths.push(d);
+                totalLen += d;
+            }
+
+            const sphereGeo = new THREE.SphereGeometry(0.11, 8, 8);
+            const sphereMat = new THREE.MeshBasicMaterial({
+                color: 0xe0f2fe
+            });
+
+            for (let i = 0; i < count; i++) {
+                const mesh = new THREE.Mesh(sphereGeo, sphereMat);
+                const lateralOffset = (Math.random() - 0.5) * (streamWidth * 0.65);
+                const verticalJitter = 0.12 + Math.random() * 0.14;
+                circuitGroup.add(mesh);
+
+                particles.push({
+                    mesh,
+                    waypoints,
+                    segLengths,
+                    totalLen,
+                    dist: (i / count) * totalLen + Math.random() * 0.4,
+                    speed: 1.2 + branchCurrent * 2.8, // Speed scales with current!
+                    lateralOffset,
+                    verticalJitter
+                });
+            }
+        }
+
+        // --- 6. Update UI Labels, Graphs & Explanations ---
+        function updateUIPanels() {
+            // 3D Floating Badges
+            document.getElementById('lbl-pump-v').textContent = `${state.V.toFixed(1)}V`;
+            document.getElementById('lbl-pump-i').textContent = `${state.I_total.toFixed(2)}A`;
+
+            document.getElementById('lbl-r1-ohm').textContent = state.R1.toFixed(0);
+            document.getElementById('lbl-r1-v').textContent = `${state.V1.toFixed(1)}V`;
+            document.getElementById('lbl-r1-i').textContent = `${state.I1.toFixed(2)}A`;
+
+            document.getElementById('lbl-r2-ohm').textContent = state.R2.toFixed(0);
+            document.getElementById('lbl-r2-v').textContent = `${state.V2.toFixed(1)}V`;
+            document.getElementById('lbl-r2-i').textContent = `${state.I2.toFixed(2)}A`;
+
+            // Total Resistance Badge
+            document.getElementById('total-r-badge').textContent = `全体の抵抗: ${state.R_total.toFixed(1)} Ω`;
+
+            // Voltage Bars (Max 12V = 100%)
+            document.getElementById('bar-v-total').style.width = `${(state.V / 12) * 100}%`;
+            document.getElementById('bar-v-r1').style.width = `${(state.V1 / 12) * 100}%`;
+            document.getElementById('bar-v-r2').style.width = `${(state.V2 / 12) * 100}%`;
+
+            document.getElementById('txt-v-total').textContent = `${state.V.toFixed(1)}V`;
+            document.getElementById('txt-v-r1').textContent = `${state.V1.toFixed(1)}V`;
+            document.getElementById('txt-v-r2').textContent = `${state.V2.toFixed(1)}V`;
+
+            // Current Bars (Scale relative to 3.6A max)
+            const maxI = 3.6;
+            document.getElementById('bar-i-total').style.width = `${Math.min(100, (state.I_total / maxI) * 100)}%`;
+            document.getElementById('bar-i-r1').style.width = `${Math.min(100, (state.I1 / maxI) * 100)}%`;
+            document.getElementById('bar-i-r2').style.width = `${Math.min(100, (state.I2 / maxI) * 100)}%`;
+
+            document.getElementById('txt-i-total').textContent = `${state.I_total.toFixed(2)}A`;
+            document.getElementById('txt-i-r1').textContent = `${state.I1.toFixed(2)}A`;
+            document.getElementById('txt-i-r2').textContent = `${state.I2.toFixed(2)}A`;
+
+            // Formulas & Educational Inspector Banner
+            if (state.mode === 'series') {
+                document.getElementById('formula-v').textContent = `V = V₁ + V₂ (${state.V.toFixed(1)} = ${state.V1.toFixed(1)} + ${state.V2.toFixed(1)})`;
+                document.getElementById('formula-i').textContent = `I = I₁ = I₂ (どこも ${state.I_total.toFixed(2)}A)`;
+                document.getElementById('schematic-mode-tag').textContent = '直列回路';
+            } else {
+                document.getElementById('formula-v').textContent = `V = V₁ = V₂ (どこも ${state.V.toFixed(1)}V)`;
+                document.getElementById('formula-i').textContent = `I = I₁ + I₂ (${state.I_total.toFixed(2)} = ${state.I1.toFixed(2)} + ${state.I2.toFixed(2)})`;
+                document.getElementById('schematic-mode-tag').textContent = '並列回路';
+            }
+
+            updateInspectorBanner();
+        }
+
+        // Select a specific component (Pump, R1, R2) for focused explanation
+        function selectNode(nodeId) {
+            state.selectedNode = nodeId;
+            document.querySelectorAll('.label-3d').forEach(el => el.classList.remove('active-node'));
+            if (nodeId === 'pump') document.getElementById('badge-pump').classList.add('active-node');
+            if (nodeId === 'r1') document.getElementById('badge-r1').classList.add('active-node');
+            if (nodeId === 'r2') document.getElementById('badge-r2').classList.add('active-node');
+
+            updateInspectorBanner();
+            render2DSchematic();
+        }
+
+        function updateInspectorBanner() {
+            const badge = document.getElementById('inspector-badge');
+            const title = document.getElementById('inspector-title');
+            const desc = document.getElementById('inspector-desc');
+
+            if (state.selectedNode === 'pump') {
+                badge.textContent = '電源（電池＝ポンプ）を測定中';
+                badge.className = 'mt-0.5 px-2.5 py-1 rounded-lg bg-rose-500/20 border border-rose-400/40 text-rose-300 text-xs font-extrabold whitespace-nowrap';
+                title.textContent = `水を 0V から ${state.V.toFixed(1)}V の高さまで汲み上げています（全体水量 ${state.I_total.toFixed(2)}A）`;
+                desc.innerHTML = `電池の電圧（V）は「水を持ち上げるポンプの高さ」です。回路全体を流れる水の合計は <span class="text-cyan-300 font-bold">${state.I_total.toFixed(2)}A</span> です。`;
+            } else if (state.selectedNode === 'r1') {
+                badge.textContent = `抵抗A (${state.R1}Ω) を測定中`;
+                badge.className = 'mt-0.5 px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs font-extrabold whitespace-nowrap';
+                title.textContent = `抵抗Aの落差（電圧）は ${state.V1.toFixed(1)}V、流れる水量（電流）は ${state.I1.toFixed(2)}A`;
+                desc.innerHTML = state.mode === 'series'
+                    ? `直列では抵抗の比（${state.R1}Ω : ${state.R2}Ω）に応じて、滝の落差が分けられます。水量は抵抗Bと全く同じです。`
+                    : `並列では電源と同じ高さ（${state.V.toFixed(1)}V）を一気に下ります。抵抗Bを変えても、抵抗Aの水量（${state.I1.toFixed(2)}A）は変わりません！`;
+            } else if (state.selectedNode === 'r2') {
+                badge.textContent = `抵抗B (${state.R2}Ω) を測定中`;
+                badge.className = 'mt-0.5 px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs font-extrabold whitespace-nowrap';
+                title.textContent = `抵抗Bの落差（電圧）は ${state.V2.toFixed(1)}V、流れる水量（電流）は ${state.I2.toFixed(2)}A`;
+                desc.innerHTML = state.mode === 'series'
+                    ? `2段目の滝として残りの ${state.V2.toFixed(1)}V を下りきり、0Vの水位に戻ります（V₁ + V₂ = ${state.V.toFixed(1)}V）。`
+                    : `並列のもう1つの滝です。落差は同じく ${state.V.toFixed(1)}V で、流れる水量は I₂ = ${state.V.toFixed(1)} ÷ ${state.R2} = ${state.I2.toFixed(2)}A です。`;
+            } else {
+                badge.className = 'mt-0.5 px-2.5 py-1 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-xs font-extrabold whitespace-nowrap';
+                if (state.mode === 'series') {
+                    badge.textContent = '直列回路の法則';
+                    title.textContent = '1本道だから「流れる水の量（電流）」はどこも全く同じ！';
+                    desc.innerHTML = `ポンプで持ち上げた高さ（<span class="text-rose-300 font-bold">${state.V.toFixed(1)}V</span>）を、2段の滝で <span class="text-amber-300 font-bold">${state.V1.toFixed(1)}V</span> と <span class="text-emerald-300 font-bold">${state.V2.toFixed(1)}V</span> に分け合って下ります。`;
+                } else {
+                    badge.textContent = '並列回路の法則';
+                    title.textContent = '枝分かれしても「滝の落差（電圧）」はどちらも電源と同じ！';
+                    desc.innerHTML = `水量は <span class="text-amber-300 font-bold">${state.I1.toFixed(2)}A</span> と <span class="text-emerald-300 font-bold">${state.I2.toFixed(2)}A</span> に分かれ、合流して <span class="text-cyan-300 font-bold">${state.I_total.toFixed(2)}A</span> に戻ります。`;
+                }
+            }
+        }
+
+        // --- 7. Render Synchronized 2D JIS Circuit Diagram ---
+        function render2DSchematic() {
+            const svg = document.getElementById('circuit-svg');
+            const isSeries = state.mode === 'series';
+            const sel = state.selectedNode;
+
+            if (isSeries) {
+                svg.innerHTML = `
+                    <!-- Main Wire Loop -->
+                    <rect x="30" y="22" width="180" height="82" rx="6" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-dasharray="4 2"/>
+                    
+                    <!-- Battery (Bottom Center) -->
+                    <g onclick="selectNode('pump')" class="cursor-pointer ${sel === 'pump' ? 'circuit-highlight' : ''}">
+                        <rect x="95" y="90" width="50" height="28" rx="6" fill="#0f172a" stroke="${sel === 'pump' ? '#f43f5e' : 'transparent'}" stroke-width="2"/>
+                        <line x1="115" y1="94" x2="115" y2="114" stroke="#f43f5e" stroke-width="3.5"/>
+                        <line x1="125" y1="98" x2="125" y2="110" stroke="#fda4af" stroke-width="2"/>
+                        <text x="120" y="88" text-anchor="middle" fill="#fda4af" font-size="9" font-weight="bold">${state.V.toFixed(1)}V</text>
+                    </g>
+
+                    <!-- Resistor A (Top Left) -->
+                    <g onclick="selectNode('r1')" class="cursor-pointer ${sel === 'r1' ? 'circuit-highlight' : ''}">
+                        <rect x="52" y="13" width="52" height="18" fill="#1e293b" stroke="#f59e0b" stroke-width="2.2" rx="2"/>
+                        <text x="78" y="25" text-anchor="middle" fill="#fcd34d" font-size="9" font-weight="bold">A:${state.R1}Ω</text>
+                        <text x="78" y="43" text-anchor="middle" fill="#38bdf8" font-size="8.5" font-weight="bold">${state.V1.toFixed(1)}V / ${state.I1.toFixed(2)}A</text>
+                    </g>
+
+                    <!-- Resistor B (Top Right) -->
+                    <g onclick="selectNode('r2')" class="cursor-pointer ${sel === 'r2' ? 'circuit-highlight' : ''}">
+                        <rect x="136" y="13" width="52" height="18" fill="#1e293b" stroke="#10b981" stroke-width="2.2" rx="2"/>
+                        <text x="162" y="25" text-anchor="middle" fill="#6ee7b7" font-size="9" font-weight="bold">B:${state.R2}Ω</text>
+                        <text x="162" y="43" text-anchor="middle" fill="#38bdf8" font-size="8.5" font-weight="bold">${state.V2.toFixed(1)}V / ${state.I2.toFixed(2)}A</text>
+                    </g>
+                `;
+            } else {
+                svg.innerHTML = `
+                    <!-- Outer Parallel Loop -->
+                    <rect x="28" y="16" width="184" height="92" rx="6" fill="none" stroke="#38bdf8" stroke-width="2.5"/>
+                    <!-- Middle Parallel Branch -->
+                    <line x1="28" y1="56" x2="212" y2="56" stroke="#38bdf8" stroke-width="2.5"/>
+                    <!-- Junction Dots -->
+                    <circle cx="28" cy="56" r="4" fill="#38bdf8"/>
+                    <circle cx="212" cy="56" r="4" fill="#38bdf8"/>
+
+                    <!-- Resistor A (Top Branch) -->
+                    <g onclick="selectNode('r1')" class="cursor-pointer ${sel === 'r1' ? 'circuit-highlight' : ''}">
+                        <rect x="88" y="8" width="64" height="16" fill="#1e293b" stroke="#f59e0b" stroke-width="2.2" rx="2"/>
+                        <text x="120" y="19" text-anchor="middle" fill="#fcd34d" font-size="8.5" font-weight="bold">A:${state.R1}Ω (${state.I1.toFixed(2)}A)</text>
+                    </g>
+
+                    <!-- Resistor B (Middle Branch) -->
+                    <g onclick="selectNode('r2')" class="cursor-pointer ${sel === 'r2' ? 'circuit-highlight' : ''}">
+                        <rect x="88" y="48" width="64" height="16" fill="#1e293b" stroke="#10b981" stroke-width="2.2" rx="2"/>
+                        <text x="120" y="59" text-anchor="middle" fill="#6ee7b7" font-size="8.5" font-weight="bold">B:${state.R2}Ω (${state.I2.toFixed(2)}A)</text>
+                    </g>
+
+                    <!-- Battery (Bottom Branch) -->
+                    <g onclick="selectNode('pump')" class="cursor-pointer ${sel === 'pump' ? 'circuit-highlight' : ''}">
+                        <rect x="85" y="94" width="70" height="24" rx="4" fill="#0f172a"/>
+                        <line x1="115" y1="98" x2="115" y2="116" stroke="#f43f5e" stroke-width="3.5"/>
+                        <line x1="125" y1="102" x2="125" y2="112" stroke="#fda4af" stroke-width="2"/>
+                        <text x="120" y="92" text-anchor="middle" fill="#fda4af" font-size="8.5" font-weight="bold">電源 ${state.V.toFixed(1)}V (計${state.I_total.toFixed(2)}A)</text>
+                    </g>
+                `;
+            }
+        }
+
+        // --- 8. Render Ohm's Law V-I Characteristic Graph ---
+        function renderVIGraph() {
+            const svg = document.getElementById('vi-graph-svg');
+            // Plot X: Voltage (0 to 12V) -> x in [32, 242]
+            // Plot Y: Current (0 to 2.5A) -> y in [92, 12]
+            const mapX = (v) => 32 + (v / 12) * 210;
+            const mapY = (i) => Math.max(10, 92 - (i / 2.5) * 80);
+
+            // End points at V = 12V for R1, R2, and Total
+            const i1_at12 = 12 / state.R1;
+            const i2_at12 = 12 / state.R2;
+            const itot_at12 = 12 / state.R_total;
+
+            svg.innerHTML = `
+                <!-- Grid Lines -->
+                <line x1="32" y1="92" x2="245" y2="92" stroke="#475569" stroke-width="1.5"/>
+                <line x1="32" y1="12" x2="32" y2="92" stroke="#475569" stroke-width="1.5"/>
+                <line x1="137" y1="12" x2="137" y2="92" stroke="#1e293b" stroke-width="1" stroke-dasharray="2 2"/>
+                <line x1="32" y1="52" x2="245" y2="52" stroke="#1e293b" stroke-width="1" stroke-dasharray="2 2"/>
+
+                <!-- Axis Labels -->
+                <text x="140" y="106" text-anchor="middle" fill="#94a3b8" font-size="8.5">電圧 V (0〜12V)</text>
+                <text x="12" y="54" text-anchor="middle" fill="#94a3b8" font-size="8.5" transform="rotate(-90 12 54)">電流 I (A)</text>
+
+                <!-- Line for R1 -->
+                <line x1="${mapX(0)}" y1="${mapY(0)}" x2="${mapX(12)}" y2="${mapY(i1_at12)}" stroke="#f59e0b" stroke-width="1.8" stroke-opacity="0.75"/>
+                <!-- Line for R2 -->
+                <line x1="${mapX(0)}" y1="${mapY(0)}" x2="${mapX(12)}" y2="${mapY(i2_at12)}" stroke="#10b981" stroke-width="1.8" stroke-opacity="0.75"/>
+                <!-- Line for Total Circuit -->
+                <line x1="${mapX(0)}" y1="${mapY(0)}" x2="${mapX(12)}" y2="${mapY(itot_at12)}" stroke="#38bdf8" stroke-width="2.2" stroke-dasharray="4 2"/>
+
+                <!-- Current Operating Points (Dots) -->
+                <circle cx="${mapX(state.V1)}" cy="${mapY(state.I1)}" r="4" fill="#f59e0b" stroke="#fff" stroke-width="1"/>
+                <circle cx="${mapX(state.V2)}" cy="${mapY(state.I2)}" r="4" fill="#10b981" stroke="#fff" stroke-width="1"/>
+                <circle cx="${mapX(state.V)}" cy="${mapY(state.I_total)}" r="4.5" fill="#38bdf8" stroke="#fff" stroke-width="1.2"/>
+
+                <!-- Legend -->
+                <g transform="translate(40, 18)">
+                    <circle cx="0" cy="0" r="3" fill="#f59e0b"/><text x="6" y="3" fill="#fcd34d" font-size="8">抵抗A</text>
+                    <circle cx="42" cy="0" r="3" fill="#10b981"/><text x="48" y="3" fill="#6ee7b7" font-size="8">抵抗B</text>
+                    <circle cx="84" cy="0" r="3" fill="#38bdf8"/><text x="90" y="3" fill="#7dd3fc" font-size="8">回路全体</text>
+                </g>
+            `;
+        }
+
+        // --- 9. Mode & Camera Controls ---
+        function setCircuitMode(mode) {
+            state.mode = mode;
+            state.selectedNode = 'all';
+            document.querySelectorAll('.label-3d').forEach(el => el.classList.remove('active-node'));
+
+            const btnSeries = document.getElementById('btn-series');
+            const btnParallel = document.getElementById('btn-parallel');
+
+            if (mode === 'series') {
+                btnSeries.className = 'px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md shadow-sky-500/30';
+                btnParallel.className = 'px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 text-slate-300 hover:text-white';
+            } else {
+                btnParallel.className = 'px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md shadow-sky-500/30';
+                btnSeries.className = 'px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 text-slate-300 hover:text-white';
+            }
+
+            updateSimulation();
+        }
+
+        function setCameraPreset(preset) {
+            ['iso', 'side', 'top'].forEach(id => {
+                const btn = document.getElementById('cam-' + id);
+                if (id === preset) {
+                    btn.className = 'px-2.5 py-1.5 rounded-xl text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-400/40 transition flex items-center gap-1';
+                } else {
+                    btn.className = 'px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-300 border border-transparent hover:bg-slate-800 transition flex items-center gap-1';
+                }
+            });
+
+            if (preset === 'iso') {
+                camControl.targetTheta = 0.25;
+                camControl.targetPhi = 1.02;
+                camControl.targetRadius = 17.5;
+            } else if (preset === 'side') {
+                // Directly from front-side to see exact Height = Voltage drops!
+                camControl.targetTheta = 0.0;
+                camControl.targetPhi = 1.48;
+                camControl.targetRadius = 16.5;
+            } else if (preset === 'top') {
+                // Directly from top to see Water Stream Width & Splitting = Current!
+                camControl.targetTheta = 0.0;
+                camControl.targetPhi = 0.12;
+                camControl.targetRadius = 18.5;
+            }
+        }
+
+        function zoomCamera(factor) {
+            camControl.targetRadius = Math.max(8.5, Math.min(28, camControl.targetRadius * factor));
+        }
+
+        function resetValues() {
+            document.getElementById('slider-v').value = 6;
+            document.getElementById('slider-r1').value = 10;
+            document.getElementById('slider-r2').value = 20;
+            state.selectedNode = 'all';
+            setCameraPreset('iso');
+            updateSimulation();
+        }
+
+        // --- 10. Touch (iPad Pinch & Orbit) + Mouse Event Listeners ---
+        function setupInputControls(canvas) {
+            // Mouse Events
+            canvas.addEventListener('mousedown', (e) => {
+                camControl.isDragging = true;
+                camControl.prevX = e.clientX;
+                camControl.prevY = e.clientY;
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!camControl.isDragging) return;
+                const dx = e.clientX - camControl.prevX;
+                const dy = e.clientY - camControl.prevY;
+                camControl.prevX = e.clientX;
+                camControl.prevY = e.clientY;
+
+                camControl.targetTheta -= dx * 0.007;
+                camControl.targetPhi = Math.max(0.1, Math.min(1.52, camControl.targetPhi - dy * 0.007));
+            });
+
+            window.addEventListener('mouseup', () => {
+                camControl.isDragging = false;
+            });
+
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                camControl.targetRadius = Math.max(8.5, Math.min(28, camControl.targetRadius + e.deltaY * 0.012));
+            }, { passive: false });
+
+            // Touch Events (1-finger orbit, 2-finger pinch zoom)
+            canvas.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    camControl.isDragging = true;
+                    camControl.prevX = e.touches[0].clientX;
+                    camControl.prevY = e.touches[0].clientY;
+                } else if (e.touches.length === 2) {
+                    camControl.isDragging = false;
+                    const dx = e.touches[0].clientX - e.touches[1].clientX;
+                    const dy = e.touches[0].clientY - e.touches[1].clientY;
+                    camControl.pinchDist = Math.hypot(dx, dy);
+                }
+            }, { passive: true });
+
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                if (e.touches.length === 1 && camControl.isDragging) {
+                    const dx = e.touches[0].clientX - camControl.prevX;
+                    const dy = e.touches[0].clientY - camControl.prevY;
+                    camControl.prevX = e.touches[0].clientX;
+                    camControl.prevY = e.touches[0].clientY;
+
+                    camControl.targetTheta -= dx * 0.007;
+                    camControl.targetPhi = Math.max(0.1, Math.min(1.52, camControl.targetPhi - dy * 0.007));
+                } else if (e.touches.length === 2) {
+                    const dx = e.touches[0].clientX - e.touches[1].clientX;
+                    const dy = e.touches[0].clientY - e.touches[1].clientY;
+                    const dist = Math.hypot(dx, dy);
+                    if (camControl.pinchDist > 0) {
+                        const scale = camControl.pinchDist / dist;
+                        camControl.targetRadius = Math.max(8.5, Math.min(28, camControl.targetRadius * scale));
+                    }
+                    camControl.pinchDist = dist;
+                }
+            }, { passive: false });
+
+            canvas.addEventListener('touchend', () => {
+                camControl.isDragging = false;
+                camControl.pinchDist = 0;
+            });
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('viewport-container');
+            if (!container || !renderer || !camera) return;
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        // Project 3D coordinates to 2D Screen coordinates for floating HTML badges
+        function update3DBadgePositions() {
+            const container = document.getElementById('viewport-container');
+            const widthHalf = container.clientWidth / 2;
+            const heightHalf = container.clientHeight / 2;
+
+            const mapBadge = (vec3, elementId) => {
+                const pos = vec3.clone().project(camera);
+                const el = document.getElementById(elementId);
+                if (!el) return;
+                const x = (pos.x * widthHalf) + widthHalf;
+                const y = -(pos.y * heightHalf) + heightHalf;
+                el.style.left = `${x}px`;
+                el.style.top = `${y}px`;
+            };
+
+            mapBadge(badgeAnchors.pump, 'badge-pump');
+            mapBadge(badgeAnchors.r1, 'badge-r1');
+            mapBadge(badgeAnchors.r2, 'badge-r2');
+        }
+
+        // --- 11. Animation Loop ---
+        let lastTime = performance.now();
+
+        function animate(now = performance.now()) {
+            requestAnimationFrame(animate);
+
+            const dt = Math.min(0.05, (now - lastTime) / 1000);
+            lastTime = now;
+
+            // Smooth Camera Interpolation
+            camControl.theta += (camControl.targetTheta - camControl.theta) * 0.12;
+            camControl.phi += (camControl.targetPhi - camControl.phi) * 0.12;
+            camControl.radius += (camControl.targetRadius - camControl.radius) * 0.12;
+
+            camera.position.x = camControl.lookAt.x + camControl.radius * Math.sin(camControl.phi) * Math.sin(camControl.theta);
+            camera.position.y = camControl.lookAt.y + camControl.radius * Math.cos(camControl.phi);
+            camera.position.z = camControl.lookAt.z + camControl.radius * Math.sin(camControl.phi) * Math.cos(camControl.theta);
+            camera.lookAt(camControl.lookAt);
+
+            // Animate Water Particles along their 3D circuit paths
+            for (let i = 0; i < particles.length; i++) {
+                const p = particles[i];
+                p.dist = (p.dist + p.speed * dt) % p.totalLen;
+
+                // Find active segment
+                let acc = 0;
+                for (let s = 0; s < p.segLengths.length; s++) {
+                    const segLen = p.segLengths[s];
+                    if (p.dist <= acc + segLen || s === p.segLengths.length - 1) {
+                        const t = segLen > 0 ? (p.dist - acc) / segLen : 0;
+                        const a = p.waypoints[s];
+                        const b = p.waypoints[s + 1];
+                        p.mesh.position.lerpVectors(a, b, t);
+                        p.mesh.position.y += p.verticalJitter;
+                        p.mesh.position.z += p.lateralOffset * 0.35;
+                        break;
+                    }
+                    acc += segLen;
+                }
+            }
+
+            // Spin Waterwheels proportional to their branch current
+            if (wheel1Mesh) wheel1Mesh.rotation.z -= dt * (1.2 + state.I1 * 4.5);
+            if (wheel2Mesh) wheel2Mesh.rotation.z -= dt * (1.2 + state.I2 * 4.5);
+
+            // Animate Pump Lifting Rings upward
+            if (pumpScrewMesh) {
+                pumpScrewMesh.rotation.y += dt * (1.5 + state.I_total * 3.0);
+            }
+
+            // Sync Floating 3D Badges
+            update3DBadgePositions();
+
+            renderer.render(scene, camera);
+        }
+
+        // Start application on window load
+        window.onload = function () {
+            initThree();
+            updateSimulation();
+            animate();
+        };
+    </script>
+</body>
+</html>
